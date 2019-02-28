@@ -1,7 +1,7 @@
-package opentracer // import "gopkg.in/DataDog/dd-trace-go.v1/ddtrace/opentracer"
+package opentracer // import "github.com/entropyx/dd-trace-go/ddtrace/opentracer"
 
 import (
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
 
 	opentracing "github.com/opentracing/opentracing-go"
 )

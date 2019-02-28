@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/tinylib/msgp/msgp"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
 )
 
 type (

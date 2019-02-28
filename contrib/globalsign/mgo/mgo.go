@@ -1,12 +1,12 @@
 // Package mgo provides functions and types which allow tracing of the MGO MongoDB client (https://github.com/globalsign/mgo)
-package mgo // import "gopkg.in/DataDog/dd-trace-go.v1/contrib/globalsign/mgo"
+package mgo // import "github.com/entropyx/dd-trace-go/contrib/globalsign/mgo"
 
 import (
 	"strings"
 
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"github.com/entropyx/dd-trace-go/ddtrace"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 
 	"github.com/globalsign/mgo"
 )

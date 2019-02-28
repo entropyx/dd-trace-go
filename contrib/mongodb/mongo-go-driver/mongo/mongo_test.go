@@ -8,15 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mongodb/mongo-go-driver/bson"
-	"github.com/mongodb/mongo-go-driver/mongo"
-	"github.com/mongodb/mongo-go-driver/mongo/options"
-	"github.com/mongodb/mongo-go-driver/x/network/result"
-	"github.com/mongodb/mongo-go-driver/x/network/wiremessage"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/mocktracer"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/mocktracer"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/x/network/result"
+	"go.mongodb.org/mongo-driver/x/network/wiremessage"
 )
 
 func Test(t *testing.T) {
@@ -38,8 +38,8 @@ func Test(t *testing.T) {
 	addr := fmt.Sprintf("mongodb://%s", li.Addr().String())
 	opts := options.Client()
 	opts.SetMonitor(NewMonitor())
-	opts.SetSingle(true)
-	client, err := mongo.Connect(ctx, addr, opts)
+	opts.ApplyURI(addr)
+	client, err := mongo.Connect(ctx, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

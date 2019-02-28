@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	redigotrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/garyburd/redigo"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	redigotrace "github.com/entropyx/dd-trace-go/contrib/garyburd/redigo"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 
 	"github.com/garyburd/redigo/redis"
 )

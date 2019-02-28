@@ -1,10 +1,10 @@
 // Package sarama provides functions to trace the Shopify/sarama package (https://github.com/Shopify/sarama).
-package sarama // import "gopkg.in/DataDog/dd-trace-go.v1/contrib/Shopify/sarama"
+package sarama // import "github.com/entropyx/dd-trace-go/contrib/Shopify/sarama"
 
 import (
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"github.com/entropyx/dd-trace-go/ddtrace"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 
 	sarama "gopkg.in/Shopify/sarama.v1"
 )

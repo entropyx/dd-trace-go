@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"gopkg.in/DataDog/dd-trace-go.v1/contrib/database/sql/internal"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"github.com/entropyx/dd-trace-go/contrib/database/sql/internal"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 )
 
 var _ driver.Driver = (*tracedDriver)(nil)

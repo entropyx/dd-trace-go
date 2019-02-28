@@ -1,10 +1,10 @@
 // Package http provides functions to trace the net/http package (https://golang.org/pkg/net/http).
-package http // import "gopkg.in/DataDog/dd-trace-go.v1/contrib/net/http"
+package http // import "github.com/entropyx/dd-trace-go/contrib/net/http"
 
 import (
 	"net/http"
 
-	"gopkg.in/DataDog/dd-trace-go.v1/contrib/internal/httputil"
+	"github.com/entropyx/dd-trace-go/contrib/internal/httputil"
 )
 
 // ServeMux is an HTTP request multiplexer that traces all the incoming requests.

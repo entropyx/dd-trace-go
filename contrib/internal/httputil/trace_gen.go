@@ -3,7 +3,7 @@
 package httputil
 
 import (
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace"
+	"github.com/entropyx/dd-trace-go/ddtrace"
 	"net/http"
 )
 

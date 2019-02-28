@@ -1,12 +1,12 @@
-package mocktracer // import "gopkg.in/DataDog/dd-trace-go.v1/ddtrace/mocktracer"
+package mocktracer // import "github.com/entropyx/dd-trace-go/ddtrace/mocktracer"
 
 import (
 	"fmt"
 	"sync"
 	"time"
 
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
 )
 
 var _ ddtrace.Span = (*mockspan)(nil)

@@ -9,8 +9,8 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/mocktracer"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"github.com/entropyx/dd-trace-go/ddtrace/mocktracer"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 )
 
 func TestMain(m *testing.M) {

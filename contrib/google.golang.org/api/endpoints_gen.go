@@ -5,7 +5,7 @@ package api
 import (
 	"regexp"
 
-	"gopkg.in/DataDog/dd-trace-go.v1/contrib/google.golang.org/api/internal"
+	"github.com/entropyx/dd-trace-go/contrib/google.golang.org/api/internal"
 )
 
 func init() {

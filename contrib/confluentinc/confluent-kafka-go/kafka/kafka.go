@@ -1,11 +1,11 @@
 // Package kafka provides functions to trace the confluentinc/confluent-kafka-go package (https://github.com/confluentinc/confluent-kafka-go).
-package kafka // import "gopkg.in/DataDog/dd-trace-go.v1/contrib/confluentinc/confluent-kafka-go/kafka"
+package kafka // import "github.com/entropyx/dd-trace-go/contrib/confluentinc/confluent-kafka-go/kafka"
 
 import (
 	"github.com/confluentinc/confluent-kafka-go/kafka"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"github.com/entropyx/dd-trace-go/ddtrace"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 )
 
 // NewConsumer calls kafka.NewConsumer and wraps the resulting Consumer.

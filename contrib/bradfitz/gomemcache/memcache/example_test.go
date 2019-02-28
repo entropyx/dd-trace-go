@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/bradfitz/gomemcache/memcache"
-	memcachetrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/bradfitz/gomemcache/memcache"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	memcachetrace "github.com/entropyx/dd-trace-go/contrib/bradfitz/gomemcache/memcache"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 )
 
 func Example() {

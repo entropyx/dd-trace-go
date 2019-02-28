@@ -1,4 +1,4 @@
-package sql // import "gopkg.in/DataDog/dd-trace-go.v1/contrib/database/sql"
+package sql // import "github.com/entropyx/dd-trace-go/contrib/database/sql"
 
 import (
 	"context"

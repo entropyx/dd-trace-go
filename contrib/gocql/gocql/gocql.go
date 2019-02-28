@@ -1,5 +1,5 @@
 // Package gocql provides functions to trace the gocql/gocql package (https://github.com/gocql/gocql).
-package gocql // import "gopkg.in/DataDog/dd-trace-go.v1/contrib/gocql/gocql"
+package gocql // import "github.com/entropyx/dd-trace-go/contrib/gocql/gocql"
 
 import (
 	"context"
@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"github.com/entropyx/dd-trace-go/ddtrace"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 
 	"github.com/gocql/gocql"
 )

@@ -1,4 +1,4 @@
-package redis // import "gopkg.in/DataDog/dd-trace-go.v1/contrib/go-redis/redis"
+package redis // import "github.com/entropyx/dd-trace-go/contrib/go-redis/redis"
 
 type clientConfig struct{ serviceName string }
 

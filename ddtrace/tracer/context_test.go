@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/internal"
+	"github.com/entropyx/dd-trace-go/ddtrace/internal"
 )
 
 func TestContextWithSpan(t *testing.T) {

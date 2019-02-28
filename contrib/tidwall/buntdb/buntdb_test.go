@@ -7,9 +7,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tidwall/buntdb"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/mocktracer"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/mocktracer"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 )
 
 func TestAscend(t *testing.T) {

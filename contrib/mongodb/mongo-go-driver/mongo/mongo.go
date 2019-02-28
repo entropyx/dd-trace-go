@@ -1,4 +1,4 @@
-// Package mongo provides functions to trace the mongodb/mongo-go-driver package (https://github.com/mongodb/mongo-go-driver).
+// Package mongo provides functions to trace the mongodb/mongo-go-driver package (https://go.mongodb.org/mongo-driver).
 //
 // `NewMonitor` will return an event.CommandMonitor which is used to trace requests.
 package mongo
@@ -9,11 +9,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/mongodb/mongo-go-driver/bson"
-	"github.com/mongodb/mongo-go-driver/event"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"github.com/entropyx/dd-trace-go/ddtrace"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/event"
 )
 
 type spanKey struct {

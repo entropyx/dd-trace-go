@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
 )
 
 func TestParseDSN(t *testing.T) {
