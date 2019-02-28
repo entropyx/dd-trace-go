@@ -6,8 +6,8 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 
-	sqltrace "github.com/DataDog/dd-trace-go/contrib/database/sql"
-	sqlxtrace "github.com/DataDog/dd-trace-go/contrib/jmoiron/sqlx"
+	sqltrace "github.com/entropyx/dd-trace-go/contrib/database/sql"
+	sqlxtrace "github.com/entropyx/dd-trace-go/contrib/jmoiron/sqlx"
 )
 
 func ExampleOpen() {

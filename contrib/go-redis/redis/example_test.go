@@ -4,9 +4,10 @@ import (
 	"context"
 	"time"
 
-	redistrace "github.com/DataDog/dd-trace-go/contrib/go-redis/redis"
-	"github.com/DataDog/dd-trace-go/tracer"
 	"github.com/go-redis/redis"
+	redistrace "github.com/entropyx/dd-trace-go/contrib/go-redis/redis"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 )
 
 // To start tracing Redis, simply create a new client using the library and continue
@@ -20,10 +21,11 @@ func Example() {
 	c.Set("test_key", "test_value", 0)
 
 	// optionally, create a new root span
-	root := tracer.NewRootSpan("parent.request", "web", "/home")
-
-	// and attach it to a context
-	ctx := root.Context(context.Background())
+	root, ctx := tracer.StartSpanFromContext(context.Background(), "parent.request",
+		tracer.SpanType(ext.SpanTypeRedis),
+		tracer.ServiceName("web"),
+		tracer.ResourceName("/home"),
+	)
 
 	// set the context on the client
 	c = c.WithContext(ctx)

@@ -1,13 +1,13 @@
 package sql
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"testing"
 
-	"github.com/DataDog/dd-trace-go/contrib/internal/sqltest"
-	"github.com/DataDog/dd-trace-go/tracer"
-	"github.com/DataDog/dd-trace-go/tracer/tracertest"
+	"github.com/entropyx/dd-trace-go/contrib/internal/sqltest"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/lib/pq"
@@ -17,17 +17,16 @@ import (
 const tableName = "testsql"
 
 func TestMain(m *testing.M) {
+	_, ok := os.LookupEnv("INTEGRATION")
+	if !ok {
+		fmt.Println("--- SKIP: to enable integration test, set the INTEGRATION environment variable")
+		os.Exit(0)
+	}
 	defer sqltest.Prepare(tableName)()
 	os.Exit(m.Run())
 }
 
 func TestMySQL(t *testing.T) {
-	originalTracer := tracer.DefaultTracer
-	trc, transport := tracertest.GetTestTracer()
-	tracer.DefaultTracer = trc
-	defer func() {
-		tracer.DefaultTracer = originalTracer
-	}()
 	Register("mysql", &mysql.MySQLDriver{})
 	db, err := Open("mysql", "test:test@tcp(127.0.0.1:3306)/test")
 	if err != nil {
@@ -35,35 +34,24 @@ func TestMySQL(t *testing.T) {
 	}
 	defer db.Close()
 
-	expectedSpan := &tracer.Span{
-		Name:    "mysql.query",
-		Service: "mysql.db",
-		Type:    "sql",
-		Meta: map[string]string{
-			"db.user":  "test",
-			"out.host": "127.0.0.1",
-			"out.port": "3306",
-			"db.name":  "test",
-		},
-	}
 	testConfig := &sqltest.Config{
 		DB:         db,
-		Tracer:     trc,
-		Transport:  transport,
 		DriverName: "mysql",
 		TableName:  tableName,
-		Expected:   expectedSpan,
+		ExpectName: "mysql.query",
+		ExpectTags: map[string]interface{}{
+			ext.ServiceName: "mysql.db",
+			ext.SpanType:    ext.SpanTypeSQL,
+			ext.TargetHost:  "127.0.0.1",
+			ext.TargetPort:  "3306",
+			ext.DBUser:      "test",
+			ext.DBName:      "test",
+		},
 	}
 	sqltest.RunAll(t, testConfig)
 }
 
 func TestPostgres(t *testing.T) {
-	originalTracer := tracer.DefaultTracer
-	trc, transport := tracertest.GetTestTracer()
-	tracer.DefaultTracer = trc
-	defer func() {
-		tracer.DefaultTracer = originalTracer
-	}()
 	Register("postgres", &pq.Driver{}, WithServiceName("postgres-test"))
 	db, err := Open("postgres", "postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable")
 	if err != nil {
@@ -71,24 +59,19 @@ func TestPostgres(t *testing.T) {
 	}
 	defer db.Close()
 
-	expectedSpan := &tracer.Span{
-		Name:    "postgres.query",
-		Service: "postgres-test",
-		Type:    "sql",
-		Meta: map[string]string{
-			"db.user":  "postgres",
-			"out.host": "127.0.0.1",
-			"out.port": "5432",
-			"db.name":  "postgres",
-		},
-	}
 	testConfig := &sqltest.Config{
 		DB:         db,
-		Tracer:     trc,
-		Transport:  transport,
 		DriverName: "postgres",
 		TableName:  tableName,
-		Expected:   expectedSpan,
+		ExpectName: "postgres.query",
+		ExpectTags: map[string]interface{}{
+			ext.ServiceName: "postgres-test",
+			ext.SpanType:    ext.SpanTypeSQL,
+			ext.TargetHost:  "127.0.0.1",
+			ext.TargetPort:  "5432",
+			ext.DBUser:      "postgres",
+			ext.DBName:      "postgres",
+		},
 	}
 	sqltest.RunAll(t, testConfig)
 }

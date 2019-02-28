@@ -1,8 +1,10 @@
-package internal
+package internal // import "github.com/entropyx/dd-trace-go/contrib/database/sql/internal"
 
 import (
 	"net"
 	"strings"
+
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
 )
 
 // ParseDSN parses various supported DSN types (currently mysql and postgres) into a
@@ -30,11 +32,11 @@ func ParseDSN(driverName, dsn string) (meta map[string]string, err error) {
 // map containing only the keys relevant as tracing tags, if any.
 func reduceKeys(meta map[string]string) map[string]string {
 	var keysOfInterest = map[string]string{
-		"user":             "db.user",
-		"application_name": "db.application",
-		"dbname":           "db.name",
-		"host":             "out.host",
-		"port":             "out.port",
+		"user":             ext.DBUser,
+		"application_name": ext.DBApplication,
+		"dbname":           ext.DBName,
+		"host":             ext.TargetHost,
+		"port":             ext.TargetPort,
 	}
 	m := make(map[string]string)
 	for k, v := range meta {

@@ -3,111 +3,250 @@ package grpc
 import (
 	"fmt"
 	"net"
+	"sync/atomic"
 	"testing"
+	"time"
 
-	"google.golang.org/grpc"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/mocktracer"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 
-	context "golang.org/x/net/context"
-
-	"github.com/DataDog/dd-trace-go/tracer"
-	"github.com/DataDog/dd-trace-go/tracer/tracertest"
 	"github.com/stretchr/testify/assert"
+	context "golang.org/x/net/context"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
-const debug = false
-
-func TestClient(t *testing.T) {
+func TestUnary(t *testing.T) {
 	assert := assert.New(t)
 
-	testTracer, testTransport := tracertest.GetTestTracer()
-	testTracer.SetDebugLogging(debug)
-
-	rig, err := newRig(testTracer, true)
+	rig, err := newRig(true)
 	if err != nil {
 		t.Fatalf("error setting up rig: %s", err)
 	}
 	defer rig.Close()
 	client := rig.client
 
-	span := testTracer.NewRootSpan("a", "b", "c")
-	ctx := tracer.ContextWithSpan(context.Background(), span)
-	resp, err := client.Ping(ctx, &FixtureRequest{Name: "pass"})
-	assert.Nil(err)
-	span.Finish()
-	assert.Equal(resp.Message, "passed")
+	for name, tt := range map[string]struct {
+		message     string
+		error       bool
+		wantMessage string
+		wantCode    codes.Code
+	}{
+		"OK": {
+			message:     "pass",
+			error:       false,
+			wantMessage: "passed",
+			wantCode:    codes.OK,
+		},
+		"Invalid": {
+			message:     "invalid",
+			error:       true,
+			wantMessage: "",
+			wantCode:    codes.InvalidArgument,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			mt := mocktracer.Start()
+			defer mt.Stop()
 
-	testTracer.ForceFlush()
-	traces := testTransport.Traces()
+			span, ctx := tracer.StartSpanFromContext(context.Background(), "a", tracer.ServiceName("b"), tracer.ResourceName("c"))
 
-	// A word here about what is going on: this is technically a
-	// distributed trace, while we're in this example in the Go world
-	// and within the same exec, client could know about server details.
-	// But this is not the general cases. So, as we only connect client
-	// and server through their span IDs, they can be flushed as independant
-	// traces. They could also be flushed at once, this is an implementation
-	// detail, what is important is that all of it is flushed, at some point.
-	if len(traces) == 0 {
-		assert.Fail("there should be at least one trace")
+			resp, err := client.Ping(ctx, &FixtureRequest{Name: tt.message})
+			span.Finish()
+			if tt.error {
+				assert.Error(err)
+			} else {
+				assert.NoError(err)
+				assert.Equal(resp.Message, tt.wantMessage)
+			}
+
+			spans := mt.FinishedSpans()
+			assert.Len(spans, 3)
+
+			var serverSpan, clientSpan, rootSpan mocktracer.Span
+
+			for _, s := range spans {
+				// order of traces in buffer is not garanteed
+				switch s.OperationName() {
+				case "grpc.server":
+					serverSpan = s
+				case "grpc.client":
+					clientSpan = s
+				case "a":
+					rootSpan = s
+				}
+			}
+
+			assert.NotNil(serverSpan)
+			assert.NotNil(clientSpan)
+			assert.NotNil(rootSpan)
+
+			assert.Equal(clientSpan.Tag(ext.TargetHost), "127.0.0.1")
+			assert.Equal(clientSpan.Tag(ext.TargetPort), rig.port)
+			assert.Equal(clientSpan.Tag(tagCode), tt.wantCode.String())
+			assert.Equal(clientSpan.TraceID(), rootSpan.TraceID())
+			assert.Equal(serverSpan.Tag(ext.ServiceName), "grpc")
+			assert.Equal(serverSpan.Tag(ext.ResourceName), "/grpc.Fixture/Ping")
+			assert.Equal(serverSpan.Tag(tagCode), tt.wantCode.String())
+			assert.Equal(serverSpan.TraceID(), rootSpan.TraceID())
+		})
 	}
-	var spans []*tracer.Span
-	for _, trace := range traces {
-		for _, span := range trace {
-			spans = append(spans, span)
-		}
-	}
-	assert.Len(spans, 3)
-
-	var sspan, cspan, tspan *tracer.Span
-
-	for _, s := range spans {
-		// order of traces in buffer is not garanteed
-		switch s.Name {
-		case "grpc.server":
-			sspan = s
-		case "grpc.client":
-			cspan = s
-		case "a":
-			tspan = s
-		}
-	}
-
-	assert.NotNil(sspan, "there should be a span with 'grpc.server' as Name")
-
-	assert.NotNil(cspan, "there should be a span with 'grpc.client' as Name")
-	assert.Equal(cspan.GetMeta("grpc.code"), "OK")
-
-	assert.NotNil(tspan, "there should be a span with 'a' as Name")
-	assert.Equal(cspan.TraceID, tspan.TraceID)
-	assert.Equal(sspan.TraceID, tspan.TraceID)
 }
 
-func TestDisabled(t *testing.T) {
-	assert := assert.New(t)
-	testTracer, testTransport := tracertest.GetTestTracer()
-	testTracer.SetDebugLogging(debug)
-	testTracer.SetEnabled(false)
+func TestStreaming(t *testing.T) {
+	// creates a stream, then sends/recvs two pings, then closes the stream
+	runPings := func(t *testing.T, ctx context.Context, client FixtureClient) {
+		stream, err := client.StreamPing(ctx)
+		assert.NoError(t, err)
 
-	rig, err := newRig(testTracer, true)
-	if err != nil {
-		t.Fatalf("error setting up rig: %s", err)
+		for i := 0; i < 2; i++ {
+			err = stream.Send(&FixtureRequest{Name: "pass"})
+			assert.NoError(t, err)
+
+			resp, err := stream.Recv()
+			assert.NoError(t, err)
+			assert.Equal(t, resp.Message, "passed")
+		}
+		stream.CloseSend()
+		// to flush the spans
+		stream.Recv()
 	}
-	defer rig.Close()
 
-	client := rig.client
-	resp, err := client.Ping(context.Background(), &FixtureRequest{Name: "disabled"})
-	assert.Nil(err)
-	assert.Equal(resp.Message, "disabled")
-	testTracer.ForceFlush()
-	traces := testTransport.Traces()
-	assert.Nil(traces)
+	checkSpans := func(t *testing.T, rig *rig, spans []mocktracer.Span, unknownSpan mocktracer.Span) {
+		var rootSpan mocktracer.Span
+		for _, span := range spans {
+			if span.OperationName() == "a" {
+				rootSpan = span
+			}
+		}
+		assert.NotNil(t, rootSpan)
+
+		for _, span := range spans {
+			if span != rootSpan {
+				assert.Equal(t, rootSpan.TraceID(), span.TraceID(),
+					"expected span to to have its trace id set to the root trace id (%d): %v",
+					rootSpan.TraceID(), span)
+				assert.Equal(t, ext.AppTypeRPC, span.Tag(ext.SpanType),
+					"expected span type to be rpc in span: %v",
+					span)
+				assert.Equal(t, "grpc", span.Tag(ext.ServiceName),
+					"expected service name to be grpc in span: %v",
+					span)
+			}
+
+			switch span.OperationName() {
+			case "grpc.client":
+				assert.Equal(t, "127.0.0.1", span.Tag(ext.TargetHost),
+					"expected target host tag to be set in span: %v", span)
+				assert.Equal(t, rig.port, span.Tag(ext.TargetPort),
+					"expected target host port to be set in span: %v", span)
+				fallthrough
+			case "grpc.server", "grpc.message":
+				wantCode := codes.OK
+				if span == unknownSpan {
+					wantCode = codes.Unknown
+				}
+				assert.Equal(t, wantCode.String(), span.Tag(tagCode),
+					"expected grpc code to be set in span: %v", span)
+				assert.Equal(t, "/grpc.Fixture/StreamPing", span.Tag(ext.ResourceName),
+					"expected resource name to be set in span: %v", span)
+				assert.Equal(t, "/grpc.Fixture/StreamPing", span.Tag(tagMethod),
+					"expected grpc method name to be set in span: %v", span)
+			}
+		}
+	}
+
+	t.Run("All", func(t *testing.T) {
+		mt := mocktracer.Start()
+		defer mt.Stop()
+
+		rig, err := newRig(true)
+		if err != nil {
+			t.Fatalf("error setting up rig: %s", err)
+		}
+		defer rig.Close()
+
+		span, ctx := tracer.StartSpanFromContext(context.Background(), "a",
+			tracer.ServiceName("b"),
+			tracer.ResourceName("c"))
+
+		runPings(t, ctx, rig.client)
+
+		span.Finish()
+
+		waitForSpans(mt, 13, 5*time.Second)
+
+		spans := mt.FinishedSpans()
+		assert.Len(t, spans, 13,
+			"expected 4 client messages + 4 server messages + 1 server call + 1 client call + 1 error from empty recv + 1 parent ctx, but got %v",
+			len(spans))
+		checkSpans(t, rig, spans, spans[len(spans)-1])
+	})
+
+	t.Run("CallsOnly", func(t *testing.T) {
+		mt := mocktracer.Start()
+		defer mt.Stop()
+
+		rig, err := newRig(true, WithStreamMessages(false))
+		if err != nil {
+			t.Fatalf("error setting up rig: %s", err)
+		}
+		defer rig.Close()
+
+		span, ctx := tracer.StartSpanFromContext(context.Background(), "a",
+			tracer.ServiceName("b"),
+			tracer.ResourceName("c"))
+
+		runPings(t, ctx, rig.client)
+
+		span.Finish()
+
+		waitForSpans(mt, 3, 5*time.Second)
+
+		spans := mt.FinishedSpans()
+		assert.Len(t, spans, 3,
+			"expected 1 server call + 1 client call + 1 parent ctx, but got %v",
+			len(spans))
+		checkSpans(t, rig, spans, spans[len(spans)-1])
+	})
+
+	t.Run("MessagesOnly", func(t *testing.T) {
+		mt := mocktracer.Start()
+		defer mt.Stop()
+
+		rig, err := newRig(true, WithStreamCalls(false))
+		if err != nil {
+			t.Fatalf("error setting up rig: %s", err)
+		}
+		defer rig.Close()
+
+		span, ctx := tracer.StartSpanFromContext(context.Background(), "a",
+			tracer.ServiceName("b"),
+			tracer.ResourceName("c"))
+
+		runPings(t, ctx, rig.client)
+
+		span.Finish()
+
+		waitForSpans(mt, 11, 5*time.Second)
+
+		spans := mt.FinishedSpans()
+		assert.Len(t, spans, 11,
+			"expected 4 client messages + 4 server messages + 1 error from empty recv + 1 parent ctx, but got %v",
+			len(spans))
+		checkSpans(t, rig, spans, nil)
+	})
 }
 
 func TestChild(t *testing.T) {
 	assert := assert.New(t)
-	testTracer, testTransport := tracertest.GetTestTracer()
-	testTracer.SetDebugLogging(debug)
+	mt := mocktracer.Start()
+	defer mt.Stop()
 
-	rig, err := newRig(testTracer, false)
+	rig, err := newRig(false)
 	if err != nil {
 		t.Fatalf("error setting up rig: %s", err)
 	}
@@ -117,87 +256,126 @@ func TestChild(t *testing.T) {
 	resp, err := client.Ping(context.Background(), &FixtureRequest{Name: "child"})
 	assert.Nil(err)
 	assert.Equal(resp.Message, "child")
-	testTracer.ForceFlush()
-	traces := testTransport.Traces()
-	assert.Len(traces, 1)
-	spans := traces[0]
+
+	spans := mt.FinishedSpans()
 	assert.Len(spans, 2)
 
-	var sspan, cspan *tracer.Span
+	var serverSpan, clientSpan mocktracer.Span
 
 	for _, s := range spans {
 		// order of traces in buffer is not garanteed
-		switch s.Name {
+		switch s.OperationName() {
 		case "grpc.server":
-			sspan = s
+			serverSpan = s
 		case "child":
-			cspan = s
+			clientSpan = s
 		}
 	}
 
-	assert.NotNil(cspan, "there should be a span with 'child' as Name")
-	assert.Equal(cspan.Error, int32(0))
-	assert.Equal(cspan.Service, "grpc")
-	assert.Equal(cspan.Resource, "child")
-	assert.True(cspan.Duration > 0)
+	assert.NotNil(clientSpan)
+	assert.Nil(clientSpan.Tag(ext.Error))
+	assert.Equal(clientSpan.Tag(ext.ServiceName), "grpc")
+	assert.Equal(clientSpan.Tag(ext.ResourceName), "child")
+	assert.True(clientSpan.FinishTime().Sub(clientSpan.StartTime()) > 0)
 
-	assert.NotNil(sspan, "there should be a span with 'grpc.server' as Name")
-	assert.Equal(sspan.Error, int32(0))
-	assert.Equal(sspan.Service, "grpc")
-	assert.Equal(sspan.Resource, "/grpc.Fixture/Ping")
-	assert.True(sspan.Duration > 0)
+	assert.NotNil(serverSpan)
+	assert.Nil(serverSpan.Tag(ext.Error))
+	assert.Equal(serverSpan.Tag(ext.ServiceName), "grpc")
+	assert.Equal(serverSpan.Tag(ext.ResourceName), "/grpc.Fixture/Ping")
+	assert.True(serverSpan.FinishTime().Sub(serverSpan.StartTime()) > 0)
 }
 
 func TestPass(t *testing.T) {
 	assert := assert.New(t)
-	testTracer, testTransport := tracertest.GetTestTracer()
-	testTracer.SetDebugLogging(debug)
+	mt := mocktracer.Start()
+	defer mt.Stop()
 
-	rig, err := newRig(testTracer, false)
+	rig, err := newRig(false)
 	if err != nil {
 		t.Fatalf("error setting up rig: %s", err)
 	}
 	defer rig.Close()
 
 	client := rig.client
+
 	resp, err := client.Ping(context.Background(), &FixtureRequest{Name: "pass"})
 	assert.Nil(err)
 	assert.Equal(resp.Message, "passed")
-	testTracer.ForceFlush()
-	traces := testTransport.Traces()
-	assert.Len(traces, 1)
-	spans := traces[0]
+
+	spans := mt.FinishedSpans()
 	assert.Len(spans, 1)
 
 	s := spans[0]
-	assert.Equal(s.Error, int32(0))
-	assert.Equal(s.Name, "grpc.server")
-	assert.Equal(s.Service, "grpc")
-	assert.Equal(s.Resource, "/grpc.Fixture/Ping")
-	assert.Equal(s.Type, "go")
-	assert.True(s.Duration > 0)
+	assert.Nil(s.Tag(ext.Error))
+	assert.Equal(s.OperationName(), "grpc.server")
+	assert.Equal(s.Tag(ext.ServiceName), "grpc")
+	assert.Equal(s.Tag(ext.ResourceName), "/grpc.Fixture/Ping")
+	assert.Equal(s.Tag(ext.SpanType), ext.AppTypeRPC)
+	assert.True(s.FinishTime().Sub(s.StartTime()) > 0)
+}
+
+func TestPreservesMetadata(t *testing.T) {
+	mt := mocktracer.Start()
+	defer mt.Stop()
+
+	rig, err := newRig(true)
+	if err != nil {
+		t.Fatalf("error setting up rig: %s", err)
+	}
+	defer rig.Close()
+
+	ctx := context.Background()
+	ctx = metadata.AppendToOutgoingContext(ctx, "test-key", "test-value")
+	span, ctx := tracer.StartSpanFromContext(ctx, "x", tracer.ServiceName("y"), tracer.ResourceName("z"))
+	rig.client.Ping(ctx, &FixtureRequest{Name: "pass"})
+	span.Finish()
+
+	md := rig.fixtureServer.lastRequestMetadata.Load().(metadata.MD)
+	assert.Equal(t, []string{"test-value"}, md.Get("test-key"),
+		"existing metadata should be preserved")
 }
 
 // fixtureServer a dummy implemenation of our grpc fixtureServer.
-type fixtureServer struct{}
+type fixtureServer struct {
+	lastRequestMetadata atomic.Value
+}
+
+func (s *fixtureServer) StreamPing(srv Fixture_StreamPingServer) error {
+	for {
+		msg, err := srv.Recv()
+		if err != nil {
+			return err
+		}
+
+		reply, err := s.Ping(srv.Context(), msg)
+		if err != nil {
+			return err
+		}
+
+		err = srv.Send(reply)
+		if err != nil {
+			return err
+		}
+	}
+}
 
 func (s *fixtureServer) Ping(ctx context.Context, in *FixtureRequest) (*FixtureReply, error) {
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		s.lastRequestMetadata.Store(md)
+	}
 	switch {
 	case in.Name == "child":
-		span, ok := tracer.SpanFromContext(ctx)
-		if ok {
-			t := span.Tracer()
-			t.NewChildSpan("child", span).Finish()
-		}
+		span, _ := tracer.StartSpanFromContext(ctx, "child")
+		span.Finish()
 		return &FixtureReply{Message: "child"}, nil
 	case in.Name == "disabled":
-		_, ok := tracer.SpanFromContext(ctx)
-		if ok {
+		if _, ok := tracer.SpanFromContext(ctx); ok {
 			panic("should be disabled")
 		}
 		return &FixtureReply{Message: "disabled"}, nil
+	case in.Name == "invalid":
+		return nil, status.Error(codes.InvalidArgument, "invalid")
 	}
-
 	return &FixtureReply{Message: "passed"}, nil
 }
 
@@ -207,10 +385,12 @@ var _ FixtureServer = &fixtureServer{}
 // rig contains all of the servers and connections we'd need for a
 // grpc integration test
 type rig struct {
-	server   *grpc.Server
-	listener net.Listener
-	conn     *grpc.ClientConn
-	client   FixtureClient
+	fixtureServer *fixtureServer
+	server        *grpc.Server
+	port          string
+	listener      net.Listener
+	conn          *grpc.ClientConn
+	client        FixtureClient
 }
 
 func (r *rig) Close() {
@@ -219,35 +399,58 @@ func (r *rig) Close() {
 	r.listener.Close()
 }
 
-func newRig(t *tracer.Tracer, traceClient bool) (*rig, error) {
+func newRig(traceClient bool, interceptorOpts ...InterceptorOption) (*rig, error) {
+	interceptorOpts = append([]InterceptorOption{WithServiceName("grpc")}, interceptorOpts...)
+
 	server := grpc.NewServer(
-		grpc.UnaryInterceptor(
-			UnaryServerInterceptor(WithServiceName("grpc"), WithTracer(t)),
-		))
+		grpc.UnaryInterceptor(UnaryServerInterceptor(interceptorOpts...)),
+		grpc.StreamInterceptor(StreamServerInterceptor(interceptorOpts...)),
+	)
 
-	RegisterFixtureServer(server, new(fixtureServer))
+	fixtureServer := new(fixtureServer)
+	RegisterFixtureServer(server, fixtureServer)
 
-	li, err := net.Listen("tcp4", "127.0.0.1:0")
+	li, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
+	_, port, _ := net.SplitHostPort(li.Addr().String())
 	// start our test fixtureServer.
 	go server.Serve(li)
 
 	opts := []grpc.DialOption{grpc.WithInsecure()}
 	if traceClient {
-		opts = append(opts, grpc.WithUnaryInterceptor(
-			UnaryClientInterceptor(WithServiceName("grpc"), WithTracer(t)),
-		))
+		opts = append(opts,
+			grpc.WithUnaryInterceptor(UnaryClientInterceptor(interceptorOpts...)),
+			grpc.WithStreamInterceptor(StreamClientInterceptor(interceptorOpts...)),
+		)
 	}
 	conn, err := grpc.Dial(li.Addr().String(), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("error dialing: %s", err)
 	}
 	return &rig{
-		listener: li,
-		server:   server,
-		conn:     conn,
-		client:   NewFixtureClient(conn),
+		fixtureServer: fixtureServer,
+		listener:      li,
+		port:          port,
+		server:        server,
+		conn:          conn,
+		client:        NewFixtureClient(conn),
 	}, err
+}
+
+// waitForSpans polls the mock tracer until the expected number of spans
+// appears
+func waitForSpans(mt mocktracer.Tracer, sz int, maxWait time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	for len(mt.FinishedSpans()) < sz {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		time.Sleep(time.Millisecond * 100)
+	}
 }

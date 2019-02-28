@@ -7,7 +7,9 @@ import (
 
 	"github.com/julienschmidt/httprouter"
 
-	httptrace "github.com/DataDog/dd-trace-go/contrib/julienschmidt/httprouter"
+	httptrace "github.com/entropyx/dd-trace-go/contrib/julienschmidt/httprouter"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 )
 
 func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -28,6 +30,20 @@ func Example() {
 
 func Example_withServiceName() {
 	router := httptrace.New(httptrace.WithServiceName("http.router"))
+	router.GET("/", Index)
+	router.GET("/hello/:name", Hello)
+
+	log.Fatal(http.ListenAndServe(":8080", router))
+}
+
+func Example_withSpanOpts() {
+	router := httptrace.New(
+		httptrace.WithServiceName("http.router"),
+		httptrace.WithSpanOptions(
+			tracer.Tag(ext.SamplingPriority, ext.PriorityUserKeep),
+		),
+	)
+
 	router.GET("/", Index)
 	router.GET("/hello/:name", Hello)
 

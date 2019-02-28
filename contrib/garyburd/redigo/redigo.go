@@ -9,10 +9,11 @@ import (
 	"net/url"
 	"strconv"
 
-	redis "github.com/garyburd/redigo/redis"
+	"github.com/entropyx/dd-trace-go/ddtrace"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 
-	"github.com/DataDog/dd-trace-go/tracer"
-	"github.com/DataDog/dd-trace-go/tracer/ext"
+	redis "github.com/garyburd/redigo/redis"
 )
 
 // Conn is an implementation of the redis.Conn interface that supports tracing
@@ -59,7 +60,6 @@ func Dial(network, address string, options ...interface{}) (redis.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg.tracer.SetServiceInfo(cfg.serviceName, "redis", ext.AppTypeDB)
 	tc := Conn{c, &params{cfg, network, host, port}}
 	return tc, nil
 }
@@ -89,13 +89,15 @@ func DialURL(rawurl string, options ...interface{}) (redis.Conn, error) {
 }
 
 // newChildSpan creates a span inheriting from the given context. It adds to the span useful metadata about the traced Redis connection
-func (tc Conn) newChildSpan(ctx context.Context) *tracer.Span {
+func (tc Conn) newChildSpan(ctx context.Context) ddtrace.Span {
 	p := tc.params
-	span := p.config.tracer.NewChildSpanFromContext("redis.command", ctx)
-	span.Service = p.config.serviceName
-	span.SetMeta("out.network", p.network)
-	span.SetMeta("out.port", p.port)
-	span.SetMeta("out.host", p.host)
+	span, _ := tracer.StartSpanFromContext(ctx, "redis.command",
+		tracer.SpanType(ext.SpanTypeRedis),
+		tracer.ServiceName(p.config.serviceName),
+	)
+	span.SetTag("out.network", p.network)
+	span.SetTag(ext.TargetPort, p.port)
+	span.SetTag(ext.TargetHost, p.host)
 	return span
 }
 
@@ -117,20 +119,17 @@ func (tc Conn) Do(commandName string, args ...interface{}) (reply interface{}, e
 
 	span := tc.newChildSpan(ctx)
 	defer func() {
-		if err != nil {
-			span.SetError(err)
-		}
-		span.Finish()
+		span.Finish(tracer.WithError(err))
 	}()
 
-	span.SetMeta("redis.args_length", strconv.Itoa(len(args)))
+	span.SetTag("redis.args_length", strconv.Itoa(len(args)))
 
 	if len(commandName) > 0 {
-		span.Resource = commandName
+		span.SetTag(ext.ResourceName, commandName)
 	} else {
 		// When the command argument to the Do method is "", then the Do method will flush the output buffer
 		// See https://godoc.org/github.com/garyburd/redigo/redis#hdr-Pipelining
-		span.Resource = "redigo.Conn.Flush"
+		span.SetTag(ext.ResourceName, "redigo.Conn.Flush")
 	}
 	var b bytes.Buffer
 	b.WriteString(commandName)
@@ -149,6 +148,6 @@ func (tc Conn) Do(commandName string, args ...interface{}) (reply interface{}, e
 			b.WriteString(arg.String())
 		}
 	}
-	span.SetMeta("redis.raw_command", b.String())
+	span.SetTag("redis.raw_command", b.String())
 	return tc.Conn.Do(commandName, args...)
 }

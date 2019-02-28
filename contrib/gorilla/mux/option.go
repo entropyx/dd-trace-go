@@ -1,10 +1,10 @@
 package mux
 
-import "github.com/DataDog/dd-trace-go/tracer"
+import "github.com/entropyx/dd-trace-go/ddtrace"
 
 type routerConfig struct {
 	serviceName string
-	tracer      *tracer.Tracer // TODO(gbbr): Remove this when we switch.
+	spanOpts    []ddtrace.StartSpanOption // additional span options to be applied
 }
 
 // RouterOption represents an option that can be passed to NewRouter.
@@ -12,7 +12,6 @@ type RouterOption func(*routerConfig)
 
 func defaults(cfg *routerConfig) {
 	cfg.serviceName = "mux.router"
-	cfg.tracer = tracer.DefaultTracer
 }
 
 // WithServiceName sets the given service name for the router.
@@ -22,8 +21,10 @@ func WithServiceName(name string) RouterOption {
 	}
 }
 
-func WithTracer(t *tracer.Tracer) RouterOption {
+// WithSpanOptions applies the given set of options to the spans started
+// by the router.
+func WithSpanOptions(opts ...ddtrace.StartSpanOption) RouterOption {
 	return func(cfg *routerConfig) {
-		cfg.tracer = t
+		cfg.spanOpts = opts
 	}
 }

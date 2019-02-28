@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"time"
 
-	"github.com/DataDog/dd-trace-go/contrib/database/sql/internal"
-	"github.com/DataDog/dd-trace-go/tracer"
-	"github.com/DataDog/dd-trace-go/tracer/ext"
+	"github.com/entropyx/dd-trace-go/contrib/database/sql/internal"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 )
 
 var _ driver.Driver = (*tracedDriver)(nil)
@@ -35,7 +36,6 @@ func (d *tracedDriver) Open(dsn string) (c driver.Conn, err error) {
 	if err != nil {
 		return nil, err
 	}
-	d.config.tracer.SetServiceInfo(d.config.serviceName, d.driverName, ext.AppTypeDB)
 	tp := &traceParams{
 		driverName: d.driverName,
 		config:     d.config,
@@ -52,20 +52,29 @@ type traceParams struct {
 	meta       map[string]string
 }
 
-func (tp *traceParams) newChildSpanFromContext(ctx context.Context, resource string, query string) *tracer.Span {
+// tryTrace will create a span using the given arguments, but will act as a no-op when err is driver.ErrSkip.
+func (tp *traceParams) tryTrace(ctx context.Context, resource string, query string, startTime time.Time, err error) {
+	if err == driver.ErrSkip {
+		// Not a user error: driver is telling sql package that an
+		// optional interface method is not implemented. There is
+		// nothing to trace here.
+		// See: https://github.com/DataDog/dd-trace-go/issues/270
+		return
+	}
 	name := fmt.Sprintf("%s.query", tp.driverName)
-	span := tp.config.tracer.NewChildSpanFromContext(name, ctx)
-	span.Type = ext.SQLType
-	span.Service = tp.config.serviceName
-	span.Resource = resource
+	span, _ := tracer.StartSpanFromContext(ctx, name,
+		tracer.SpanType(ext.SpanTypeSQL),
+		tracer.ServiceName(tp.config.serviceName),
+		tracer.StartTime(startTime),
+	)
 	if query != "" {
-		span.Resource = query
-		span.SetMeta(ext.SQLQuery, query)
+		resource = query
 	}
+	span.SetTag(ext.ResourceName, resource)
 	for k, v := range tp.meta {
-		span.SetMeta(k, v)
+		span.SetTag(k, v)
 	}
-	return span
+	span.Finish(tracer.WithError(err))
 }
 
 // tracedDriverName returns the name of the traced version for the given driver name.

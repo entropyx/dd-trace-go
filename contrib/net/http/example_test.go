@@ -3,7 +3,7 @@ package http_test
 import (
 	"net/http"
 
-	httptrace "github.com/DataDog/dd-trace-go/contrib/net/http"
+	httptrace "github.com/entropyx/dd-trace-go/contrib/net/http"
 )
 
 func Example() {

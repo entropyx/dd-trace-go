@@ -1,17 +1,17 @@
 // Package elastic provides functions to trace the gopkg.in/olivere/elastic.v{3,5} packages.
-package elastic
+package elastic // import "github.com/entropyx/dd-trace-go/contrib/olivere/elastic"
 
 import (
-	"bytes"
+	"bufio"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"regexp"
 	"strconv"
 
-	"github.com/DataDog/dd-trace-go/tracer"
-	"github.com/DataDog/dd-trace-go/tracer/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/ext"
+	"github.com/entropyx/dd-trace-go/ddtrace/tracer"
 )
 
 // NewHTTPClient returns a new http.Client which traces requests under the given service name.
@@ -27,53 +27,48 @@ func NewHTTPClient(opts ...ClientOption) *http.Client {
 // httpTransport is a traced HTTP transport that captures Elasticsearch spans.
 type httpTransport struct{ config *clientConfig }
 
-// maxContentLength is the maximum content length for which we'll read and capture
-// the contents of the request body. Anything larger will still be traced but the
-// body will not be captured as trace metadata.
-const maxContentLength = 500 * 1024
+// bodyCutoff specifies the maximum number of bytes that will be stored as a tag
+// value obtained from an HTTP request or response body.
+var bodyCutoff = 5 * 1024
 
 // RoundTrip satisfies the RoundTripper interface, wraps the sub Transport and
 // captures a span of the Elasticsearch request.
 func (t *httpTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	span := t.config.tracer.NewChildSpanFromContext("elasticsearch.query", req.Context())
+	url := req.URL.Path
+	method := req.Method
+	resource := quantize(url, method)
+	span, _ := tracer.StartSpanFromContext(req.Context(), "elasticsearch.query",
+		tracer.ServiceName(t.config.serviceName),
+		tracer.SpanType(ext.SpanTypeElasticSearch),
+		tracer.ResourceName(resource),
+		tracer.Tag("elasticsearch.method", method),
+		tracer.Tag("elasticsearch.url", url),
+		tracer.Tag("elasticsearch.params", req.URL.Query().Encode()),
+	)
 	defer span.Finish()
 
-	span.Service = t.config.serviceName
-	span.Type = ext.AppTypeDB
-	span.SetMeta("elasticsearch.method", req.Method)
-	span.SetMeta("elasticsearch.url", req.URL.Path)
-	span.SetMeta("elasticsearch.params", req.URL.Query().Encode())
-
-	contentLength, _ := strconv.Atoi(req.Header.Get("Content-Length"))
-	if req.Body != nil && contentLength < maxContentLength {
-		buf, err := ioutil.ReadAll(req.Body)
-		if err != nil {
-			return nil, err
-		}
-		span.SetMeta("elasticsearch.body", string(buf))
-		req.Body = ioutil.NopCloser(bytes.NewBuffer(buf))
+	snip, rc, err := peek(req.Body, int(req.ContentLength), bodyCutoff)
+	if err == nil {
+		span.SetTag("elasticsearch.body", snip)
 	}
+	req.Body = rc
 	// process using the standard transport
 	res, err := t.config.transport.RoundTrip(req)
 	if err != nil {
 		// roundtrip error
-		span.SetError(err)
+		span.SetTag(ext.Error, err)
 	} else if res.StatusCode < 200 || res.StatusCode > 299 {
 		// HTTP error
-		buf, err := ioutil.ReadAll(res.Body)
+		snip, rc, err := peek(res.Body, int(res.ContentLength), bodyCutoff)
 		if err != nil {
-			span.SetError(errors.New(http.StatusText(res.StatusCode)))
-		} else {
-			span.SetError(errors.New(string(buf)))
+			snip = http.StatusText(res.StatusCode)
 		}
-		res.Body = ioutil.NopCloser(bytes.NewBuffer(buf))
+		span.SetTag(ext.Error, errors.New(snip))
+		res.Body = rc
 	}
 	if res != nil {
-		span.SetMeta(ext.HTTPCode, strconv.Itoa(res.StatusCode))
+		span.SetTag(ext.HTTPCode, strconv.Itoa(res.StatusCode))
 	}
-
-	quantize(span)
-
 	return res, err
 }
 
@@ -87,11 +82,35 @@ var (
 // quantize quantizes an Elasticsearch to extract a meaningful resource from the request.
 // We quantize based on the method+url with some cleanup applied to the URL.
 // URLs with an ID will be generalized as will (potential) timestamped indices.
-func quantize(span *tracer.Span) {
-	url := span.GetMeta("elasticsearch.url")
-	method := span.GetMeta("elasticsearch.method")
-
+func quantize(url, method string) string {
 	quantizedURL := idRegexp.ReplaceAll([]byte(url), idPlaceholder)
 	quantizedURL = indexRegexp.ReplaceAll(quantizedURL, indexPlaceholder)
-	span.Resource = fmt.Sprintf("%s %s", method, quantizedURL)
+	return fmt.Sprintf("%s %s", method, quantizedURL)
+}
+
+// peek attempts to return the first n bytes, as a string, from the provided io.ReadCloser.
+// It returns a new io.ReadCloser which points to the same underlying stream and can be read
+// from to access the entire data including the snippet. max is used to specify the length
+// of the stream contained in the reader. If unknown, it should be -1. If 0 < max < n it
+// will override n.
+func peek(rc io.ReadCloser, max int, n int) (string, io.ReadCloser, error) {
+	if rc == nil {
+		return "", rc, errors.New("empty stream")
+	}
+	if max > 0 && max < n {
+		n = max
+	}
+	r := bufio.NewReaderSize(rc, n)
+	rc2 := struct {
+		io.Reader
+		io.Closer
+	}{
+		Reader: r,
+		Closer: rc,
+	}
+	snip, err := r.Peek(n)
+	if err == io.EOF {
+		err = nil
+	}
+	return string(snip), rc2, err
 }

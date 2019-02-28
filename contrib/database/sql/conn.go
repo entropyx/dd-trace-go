@@ -1,8 +1,9 @@
-package sql
+package sql // import "github.com/entropyx/dd-trace-go/contrib/database/sql"
 
 import (
 	"context"
 	"database/sql/driver"
+	"time"
 )
 
 var _ driver.Conn = (*tracedConn)(nil)
@@ -13,19 +14,17 @@ type tracedConn struct {
 }
 
 func (tc *tracedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (tx driver.Tx, err error) {
-	span := tc.newChildSpanFromContext(ctx, "Begin", "")
-	defer func() {
-		span.SetError(err)
-		span.Finish()
-	}()
+	start := time.Now()
 	if connBeginTx, ok := tc.Conn.(driver.ConnBeginTx); ok {
 		tx, err = connBeginTx.BeginTx(ctx, opts)
+		tc.tryTrace(ctx, "Begin", "", start, err)
 		if err != nil {
 			return nil, err
 		}
 		return &tracedTx{tx, tc.traceParams, ctx}, nil
 	}
 	tx, err = tc.Conn.Begin()
+	tc.tryTrace(ctx, "Begin", "", start, err)
 	if err != nil {
 		return nil, err
 	}
@@ -33,19 +32,17 @@ func (tc *tracedConn) BeginTx(ctx context.Context, opts driver.TxOptions) (tx dr
 }
 
 func (tc *tracedConn) PrepareContext(ctx context.Context, query string) (stmt driver.Stmt, err error) {
-	span := tc.newChildSpanFromContext(ctx, "Prepare", query)
-	defer func() {
-		span.SetError(err)
-		span.Finish()
-	}()
+	start := time.Now()
 	if connPrepareCtx, ok := tc.Conn.(driver.ConnPrepareContext); ok {
 		stmt, err := connPrepareCtx.PrepareContext(ctx, query)
+		tc.tryTrace(ctx, "Prepare", query, start, err)
 		if err != nil {
 			return nil, err
 		}
 		return &tracedStmt{stmt, tc.traceParams, ctx, query}, nil
 	}
 	stmt, err = tc.Prepare(query)
+	tc.tryTrace(ctx, "Prepare", query, start, err)
 	if err != nil {
 		return nil, err
 	}
@@ -60,13 +57,11 @@ func (tc *tracedConn) Exec(query string, args []driver.Value) (driver.Result, er
 }
 
 func (tc *tracedConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (r driver.Result, err error) {
-	span := tc.newChildSpanFromContext(ctx, "Exec", query)
-	defer func() {
-		span.SetError(err)
-		span.Finish()
-	}()
+	start := time.Now()
 	if execContext, ok := tc.Conn.(driver.ExecerContext); ok {
-		return execContext.ExecContext(ctx, query, args)
+		r, err := execContext.ExecContext(ctx, query, args)
+		tc.tryTrace(ctx, "Exec", query, start, err)
+		return r, err
 	}
 	dargs, err := namedValueToValue(args)
 	if err != nil {
@@ -77,20 +72,19 @@ func (tc *tracedConn) ExecContext(ctx context.Context, query string, args []driv
 		return nil, ctx.Err()
 	default:
 	}
-	return tc.Exec(query, dargs)
+	r, err = tc.Exec(query, dargs)
+	tc.tryTrace(ctx, "Exec", query, start, err)
+	return r, err
 }
 
 // tracedConn has a Ping method in order to implement the pinger interface
 func (tc *tracedConn) Ping(ctx context.Context) (err error) {
-	span := tc.newChildSpanFromContext(ctx, "Ping", "")
-	defer func() {
-		span.SetError(err)
-		span.Finish()
-	}()
+	start := time.Now()
 	if pinger, ok := tc.Conn.(driver.Pinger); ok {
-		return pinger.Ping(ctx)
+		err = pinger.Ping(ctx)
 	}
-	return nil
+	tc.tryTrace(ctx, "Ping", "", start, err)
+	return err
 }
 
 func (tc *tracedConn) Query(query string, args []driver.Value) (driver.Rows, error) {
@@ -101,13 +95,11 @@ func (tc *tracedConn) Query(query string, args []driver.Value) (driver.Rows, err
 }
 
 func (tc *tracedConn) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (rows driver.Rows, err error) {
-	span := tc.newChildSpanFromContext(ctx, "Query", query)
-	defer func() {
-		span.SetError(err)
-		span.Finish()
-	}()
+	start := time.Now()
 	if queryerContext, ok := tc.Conn.(driver.QueryerContext); ok {
-		return queryerContext.QueryContext(ctx, query, args)
+		rows, err := queryerContext.QueryContext(ctx, query, args)
+		tc.tryTrace(ctx, "Query", query, start, err)
+		return rows, err
 	}
 	dargs, err := namedValueToValue(args)
 	if err != nil {
@@ -118,5 +110,7 @@ func (tc *tracedConn) QueryContext(ctx context.Context, query string, args []dri
 		return nil, ctx.Err()
 	default:
 	}
-	return tc.Query(query, dargs)
+	rows, err = tc.Query(query, dargs)
+	tc.tryTrace(ctx, "Query", query, start, err)
+	return rows, err
 }
